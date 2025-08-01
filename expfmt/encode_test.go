@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/prometheus/common/model"
@@ -309,86 +310,78 @@ foo_metric 1.234
 }
 
 func TestEscapedEncode(t *testing.T) {
-	var buff bytes.Buffer
-	delimEncoder := NewEncoder(&buff, FmtProtoDelim+"; escaping=underscores")
-	metric := &dto.MetricFamily{
-		Name: proto.String("foo.metric"),
-		Type: dto.MetricType_UNTYPED.Enum(),
-		Metric: []*dto.Metric{
-			{
-				Untyped: &dto.Untyped{
-					Value: proto.Float64(1.234),
-				},
-			},
-			{
-				Label: []*dto.LabelPair{
-					{
-						Name:  proto.String("dotted.label.name"),
-						Value: proto.String("my.label.value"),
+	var (
+		metric = &dto.MetricFamily{
+			Name: proto.String("foo.metric"),
+			Type: dto.MetricType_UNTYPED.Enum(),
+			Metric: []*dto.Metric{
+				{
+					Untyped: &dto.Untyped{
+						Value: proto.Float64(1.234),
 					},
 				},
-				Untyped: &dto.Untyped{
-					Value: proto.Float64(8),
+				{
+					Label: []*dto.LabelPair{
+						{
+							Name:  proto.String("dotted.label.name"),
+							Value: proto.String("my.label.value"),
+						},
+					},
+					Untyped: &dto.Untyped{
+						Value: proto.Float64(8),
+					},
 				},
 			},
-		},
+		}
+		buff bytes.Buffer
+	)
+
+	verifyCorrectlyEscaped := func(t *testing.T, out string, format Format) {
+		require.NotContainsf(t, out, `"foo.metric"`, "format incorrectly escaped: %s", format)
+		require.Containsf(t, out, `foo_metric`, "format incorrectly escaped: %s", format)
+		require.NotContainsf(t, out, `"dotted.label.name"`, "format incorrectly escaped: %s", format)
+		require.Containsf(t, out, `dotted_label_name`, "format incorrectly escaped: %s", format)
+		require.Containsf(t, out, `my.label.value`, "format incorrectly escaped: %s", format)
 	}
 
+	format := FmtProtoDelim + "; escaping=underscores"
+	delimEncoder := NewEncoder(&buff, format)
 	err := delimEncoder.Encode(metric)
-	if err != nil {
-		t.Errorf("unexpected error during encode: %s", err.Error())
-	}
-
+	require.NoError(t, err)
 	out := buff.Bytes()
-	if len(out) == 0 {
-		t.Errorf("expected the output bytes buffer to be non-empty")
-	}
+	require.NotEmptyf(t, out, "expected the output bytes buffer to be non-empty")
+	verifyCorrectlyEscaped(t, string(out), format)
 
 	buff.Reset()
-
-	compactEncoder := NewEncoder(&buff, FmtProtoCompact)
+	format = FmtProtoCompact
+	compactEncoder := NewEncoder(&buff, format)
 	err = compactEncoder.Encode(metric)
-	if err != nil {
-		t.Errorf("unexpected error during encode: %s", err.Error())
-	}
-
+	require.NoError(t, err)
+	verifyCorrectlyEscaped(t, string(out), format)
 	out = buff.Bytes()
-	if len(out) == 0 {
-		t.Errorf("expected the output bytes buffer to be non-empty")
-	}
+	require.NotEmptyf(t, out, "expected the output bytes buffer to be non-empty")
+	verifyCorrectlyEscaped(t, string(out), format)
 
 	buff.Reset()
-
-	protoTextEncoder := NewEncoder(&buff, FmtProtoText)
+	format = FmtProtoText
+	protoTextEncoder := NewEncoder(&buff, format)
 	err = protoTextEncoder.Encode(metric)
-	if err != nil {
-		t.Errorf("unexpected error during encode: %s", err.Error())
-	}
-
+	require.NoError(t, err)
 	out = buff.Bytes()
-	if len(out) == 0 {
-		t.Errorf("expected the output bytes buffer to be non-empty")
-	}
+	require.NotEmptyf(t, out, "expected the output bytes buffer to be non-empty")
+	verifyCorrectlyEscaped(t, string(out), format)
 
 	buff.Reset()
-
-	textEncoder := NewEncoder(&buff, FmtText)
+	format = FmtText
+	textEncoder := NewEncoder(&buff, format)
 	err = textEncoder.Encode(metric)
-	if err != nil {
-		t.Errorf("unexpected error during encode: %s", err.Error())
-	}
-
+	require.NoError(t, err)
 	out = buff.Bytes()
-	if len(out) == 0 {
-		t.Errorf("expected the output bytes buffer to be non-empty")
-	}
+	require.NotEmptyf(t, out, "expected the output bytes buffer to be non-empty")
+	verifyCorrectlyEscaped(t, string(out), format)
 
-	expected := `# TYPE foo_metric untyped
+	require.Equal(t, `# TYPE foo_metric untyped
 foo_metric 1.234
 foo_metric{dotted_label_name="my.label.value"} 8
-`
-
-	if string(out) != expected {
-		t.Errorf("expected TextEncoder to return %s, but got %s instead", expected, string(out))
-	}
+`, string(out))
 }
